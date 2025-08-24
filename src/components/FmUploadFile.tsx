@@ -12,29 +12,15 @@ type ApiResult = {
   imageUrl: string | null;
 };
 
-const API_ORIGIN = "https://saffron-ai.irscp.ir";
-const API_URL = `/api/predict/`; 
+type ApiResponse = {
+  success: boolean;
+  message?: string;
+  prediction?: string;
+  annotated_image_url?: string; // ممکن است نسبی باشد
+};
 
-function parseApiHtml(html: string, origin: string): ApiResult {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-
-  const textParts: string[] = [];
-  doc.querySelectorAll("h2, h3, p, b, strong").forEach((el) => {
-    const t = el.textContent?.trim();
-    if (t) textParts.push(t);
-  });
-
-  const img = doc.querySelector("img");
-  let annotatedUrl: string | null = null;
-  if (img?.getAttribute("src")) {
-    annotatedUrl = new URL(img.getAttribute("src")!, origin).href;
-  }
-
-  return {
-    text: textParts.join(" • ") || "نتیجه دریافت شد.",
-    imageUrl: annotatedUrl,
-  };
-}
+const API_ORIGIN = "https://saffron-ai.irscp.ir"; // برای ساختن URL مطلق عکس
+const API_URL = `/api/predict/`; // در Dev با Vite proxy و در Prod با vercel.json/Serverless
 
 export const FmUploadPage: React.FC = () => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -52,7 +38,6 @@ export const FmUploadPage: React.FC = () => {
   const [result, setResult] = useState<ApiResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
- 
   useEffect(() => {
     return () => {
       if (preview.url) URL.revokeObjectURL(preview.url);
@@ -72,7 +57,6 @@ export const FmUploadPage: React.FC = () => {
     setPreview({ url, name: f.name, sizeKB: Math.round(f.size / 1024) });
     setFile(f);
 
-    // ریست نتیجه/خطا
     setResult(null);
     setErrorMsg(null);
   }, [preview.url]);
@@ -113,7 +97,7 @@ export const FmUploadPage: React.FC = () => {
     setErrorMsg(null);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000); // 15s
+    const timer = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
     try {
       const fd = new FormData();
@@ -129,15 +113,35 @@ export const FmUploadPage: React.FC = () => {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const html = await res.text();
-      const parsed = parseApiHtml(html, API_ORIGIN);
-      setResult(parsed);
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
+      // ✅ پاسخ JSON جدید
+      const data: ApiResponse = await res.json();
+
+      if (!data.success) {
+        setErrorMsg(data.message || "نتوانستیم نتیجه معتبری دریافت کنیم.");
+        return;
+      }
+
+      // متن قابل‌خواندن برای کاربر
+      const parts = [
+        data.message?.trim(),
+        data.prediction ? `برچسب: ${data.prediction}` : undefined,
+      ].filter(Boolean) as string[];
+
+      // ساخت URL مطلق برای عکس Annotated (اگر نسبی بود)
+      const imageUrl = data.annotated_image_url
+        ? new URL(data.annotated_image_url, API_ORIGIN).href
+        : null;
+
+      setResult({
+        text: parts.join(" • "),
+        imageUrl,
+      });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
         setErrorMsg("پاسخ‌گویی سرویس طولانی شد. دوباره تلاش کنید.");
       } else {
         setErrorMsg("خطا در فراخوانی سرویس یا پردازش پاسخ.");
-        // console.error(err);
+        console.error(err);
       }
     } finally {
       clearTimeout(timer);
@@ -186,7 +190,7 @@ export const FmUploadPage: React.FC = () => {
         </section>
       ) : (
         <>
-          <section className="space-y-3 px-10">
+          <section className="space-y-3">
             <CmUploadFile
               isDragging={isDragging}
               imagePreviewUrl={preview.url}
