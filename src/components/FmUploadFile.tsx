@@ -190,6 +190,8 @@ export const FmUploadPage: React.FC = () => {
         </section>
       ) : (
         <>
+
+        
           <section className="space-y-3 p-4">
             <CmUploadFile
               isDragging={isDragging}
