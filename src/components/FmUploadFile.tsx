@@ -16,11 +16,11 @@ type ApiResponse = {
   success: boolean;
   message?: string;
   prediction?: string;
-  annotated_image_url?: string; // ممکن است نسبی باشد
+  annotated_image_url?: string;
 };
 
-const API_ORIGIN = "https://saffron-ai.irscp.ir"; // برای ساختن URL مطلق عکس
-const API_URL = `/api/predict/`; // در Dev با Vite proxy و در Prod با vercel.json/Serverless
+const API_ORIGIN = "https://saffron-ai.irscp.ir";
+const API_URL = `/api/predict/`;
 
 export const FmUploadPage: React.FC = () => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -97,7 +97,7 @@ export const FmUploadPage: React.FC = () => {
     setErrorMsg(null);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const timer = setTimeout(() => controller.abort(), 15000);
 
     try {
       const fd = new FormData();
@@ -113,7 +113,6 @@ export const FmUploadPage: React.FC = () => {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      // ✅ پاسخ JSON جدید
       const data: ApiResponse = await res.json();
 
       if (!data.success) {
@@ -121,13 +120,11 @@ export const FmUploadPage: React.FC = () => {
         return;
       }
 
-      // متن قابل‌خواندن برای کاربر
       const parts = [
         data.message?.trim(),
         data.prediction ? `برچسب: ${data.prediction}` : undefined,
       ].filter(Boolean) as string[];
 
-      // ساخت URL مطلق برای عکس Annotated (اگر نسبی بود)
       const imageUrl = data.annotated_image_url
         ? new URL(data.annotated_image_url, API_ORIGIN).href
         : null;
@@ -190,8 +187,6 @@ export const FmUploadPage: React.FC = () => {
         </section>
       ) : (
         <>
-
-        
           <section className="space-y-3 p-4">
             <CmUploadFile
               isDragging={isDragging}
