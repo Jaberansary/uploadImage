@@ -7,17 +7,50 @@ type PreviewState = {
   sizeKB: number | null;
 };
 
+type ApiResult = {
+  text: string;
+  imageUrl: string | null;
+};
+
+const API_ORIGIN = "https://saffron-ai.irscp.ir";
+const API_URL = `/api/predict/`; 
+
+function parseApiHtml(html: string, origin: string): ApiResult {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  const textParts: string[] = [];
+  doc.querySelectorAll("h2, h3, p, b, strong").forEach((el) => {
+    const t = el.textContent?.trim();
+    if (t) textParts.push(t);
+  });
+
+  const img = doc.querySelector("img");
+  let annotatedUrl: string | null = null;
+  if (img?.getAttribute("src")) {
+    annotatedUrl = new URL(img.getAttribute("src")!, origin).href;
+  }
+
+  return {
+    text: textParts.join(" • ") || "نتیجه دریافت شد.",
+    imageUrl: annotatedUrl,
+  };
+}
+
 export const FmUploadPage: React.FC = () => {
   const fileRef = useRef<HTMLInputElement>(null);
+
   const [isDragging, setDragging] = useState(false);
+  const [isSubmitting, setSubmitting] = useState(false);
+
   const [preview, setPreview] = useState<PreviewState>({
     url: null,
     name: null,
     sizeKB: null,
   });
+
   const [file, setFile] = useState<File | null>(null);
-  const [isSubmitting, setSubmitting] = useState(false);
-  const [response, setResponse] = useState<string | null>(null);
+  const [result, setResult] = useState<ApiResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
  
   useEffect(() => {
@@ -28,24 +61,25 @@ export const FmUploadPage: React.FC = () => {
 
   const openPicker = () => fileRef.current?.click();
 
-  const applyFile = useCallback(
-    (f: File) => {
-      if (!f.type.startsWith("image/")) {
-        alert("لطفاً فقط تصویر انتخاب کنید.");
-        return;
-      }
-      if (preview.url) URL.revokeObjectURL(preview.url);
-      const url = URL.createObjectURL(f);
-      setPreview({ url, name: f.name, sizeKB: Math.round(f.size / 1024) });
-      setFile(f);
-    },
-    [preview.url]
-  );
+  const applyFile = useCallback((f: File) => {
+    if (!f.type.startsWith("image/")) {
+      alert("لطفاً فقط تصویر انتخاب کنید.");
+      return;
+    }
+    if (preview.url) URL.revokeObjectURL(preview.url);
+
+    const url = URL.createObjectURL(f);
+    setPreview({ url, name: f.name, sizeKB: Math.round(f.size / 1024) });
+    setFile(f);
+
+    // ریست نتیجه/خطا
+    setResult(null);
+    setErrorMsg(null);
+  }, [preview.url]);
 
   const onChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const f = e.target.files?.[0];
     if (f) applyFile(f);
- 
     e.currentTarget.value = "";
   };
 
@@ -55,59 +89,134 @@ export const FmUploadPage: React.FC = () => {
     const f = e.dataTransfer.files?.[0];
     if (f) applyFile(f);
   };
+
   const onDragOver: React.DragEventHandler<HTMLDivElement> = (e) => {
     e.preventDefault();
     setDragging(true);
   };
+
   const onDragLeave = () => setDragging(false);
 
   const onRemove = () => {
     if (preview.url) URL.revokeObjectURL(preview.url);
     setPreview({ url: null, name: null, sizeKB: null });
     setFile(null);
+    setResult(null);
+    setErrorMsg(null);
   };
 
   const onSubmit = async () => {
     if (!file || isSubmitting) return;
+
     setSubmitting(true);
+    setResult(null);
+    setErrorMsg(null);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000); // 15s
+
     try {
-      await new Promise((r) => setTimeout(r, 1200));
-      setResponse(" تصویر با موفقیت شناسایی شد");
-    } catch {
-      setResponse(" خطا در شناسایی فایل");
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const html = await res.text();
+      const parsed = parseApiHtml(html, API_ORIGIN);
+      setResult(parsed);
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        setErrorMsg("پاسخ‌گویی سرویس طولانی شد. دوباره تلاش کنید.");
+      } else {
+        setErrorMsg("خطا در فراخوانی سرویس یا پردازش پاسخ.");
+        // console.error(err);
+      }
     } finally {
+      clearTimeout(timer);
       setSubmitting(false);
     }
   };
 
+  const showResult = Boolean(result);
+
   return (
-    <main
-      dir="rtl"
-      className="w-full flex items-center justify-center bg-blue-950"
-    >
-      <CmUploadFile
-        isDragging={isDragging}
-        imagePreviewUrl={preview.url}
-        fileName={preview.name}
-        fileSizeKB={preview.sizeKB}
-        onPick={openPicker}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onRemove={onRemove}
-        onSubmit={onSubmit}
-        isSubmitting={isSubmitting}
-        response={response}
-      />
+    <main dir="rtl" className="w-full min-h-screen flex items-center justify-center bg-blue-950">
+      {showResult ? (
+        <section className="max-w-md w-[92vw] rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4 sm:p-6 text-white">
+          <h2 className="text-lg font-bold mb-3">نتیجه تشخیص</h2>
 
+          <p className="mb-2 text-sm">{result!.text}</p>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onChange}
-      />
+          {result!.imageUrl && (
+            <div className="rounded-lg overflow-hidden border border-white/10 bg-black/10 p-2">
+              <img
+                src={result!.imageUrl}
+                alt="Annotated result"
+                className="w-full h-auto object-contain"
+                loading="lazy"
+              />
+              <a
+                href={result!.imageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-xs text-blue-300 underline mt-1"
+              >
+                باز کردن تصویر در تب جدید
+              </a>
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onRemove}
+              className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm"
+            >
+              انتخاب فایل جدید
+            </button>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="space-y-3 px-10">
+            <CmUploadFile
+              isDragging={isDragging}
+              imagePreviewUrl={preview.url}
+              fileName={preview.name}
+              fileSizeKB={preview.sizeKB}
+              onPick={openPicker}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onRemove={onRemove}
+              onSubmit={onSubmit}
+              isSubmitting={isSubmitting}
+            />
+
+            {errorMsg && (
+              <div className="max-w-md w-[92vw] text-sm text-rose-200">
+                {errorMsg}
+              </div>
+            )}
+          </section>
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onChange}
+          />
+        </>
+      )}
     </main>
   );
 };

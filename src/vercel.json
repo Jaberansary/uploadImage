@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://saffron-ai.irscp.ir/$1" }
+  ]
+}
